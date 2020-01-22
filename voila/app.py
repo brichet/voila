@@ -18,6 +18,7 @@ import shutil
 import signal
 import socket
 import webbrowser
+import importlib
 
 try:
     from urllib.parse import urljoin
@@ -30,6 +31,7 @@ import jinja2
 
 import tornado.ioloop
 import tornado.web
+from tornado.httputil import url_concat
 
 from traitlets.config.application import Application
 from traitlets import Unicode, Integer, Bool, Dict, List, default
@@ -52,6 +54,17 @@ from .treehandler import VoilaTreeHandler
 from ._version import __version__
 from .static_file_handler import MultiStaticFileHandler
 from .configuration import VoilaConfiguration
+
+additional_handlers = []
+if os.path.isdir(os.path.join(os.path.abspath(os.path.dirname(__file__)), "handlers")):
+    handlers_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "handlers")
+    for f in os.listdir(handlers_dir):
+        if f[:2] == "__":
+            continue
+        class_name = os.path.splitext(f)[0]
+        additional_handlers.append(getattr(importlib.import_module(".".join([".handlers", class_name]),
+                                                                   package="voila"),
+                                           class_name))
 
 ioloop.install()
 _kernel_id_regex = r"(?P<kernel_id>\w+-\w+-\w+-\w+-\w+)"
@@ -222,6 +235,9 @@ class Voila(Application):
                                  This option is intended to be used when the URL to display to the user
                                  cannot be determined reliably by the Jupyter notebook server (proxified
                                  or containerized setups for example)."""))
+    token = Unicode(u'', config=True,
+                    help="""Specify a token for connexion, allowing only owners to access to the Notebook
+                         """)
 
     @property
     def display_url(self):
@@ -236,12 +252,12 @@ class Voila(Application):
                 ip = self.ip
             url = self._url(ip)
         # TODO: do we want to have the token?
-        # if self.token:
-        #     # Don't log full token if it came from config
-        #     token = self.token if self._token_generated else '...'
-        #     url = (url_concat(url, {'token': token})
-        #           + '\n or '
-        #           + url_concat(self._url('127.0.0.1'), {'token': token}))
+        if self.token:
+            # Don't log full token if it came from config
+            # token = self.token if self._token_generated else '...'
+            url = (url_concat(url, {'token': self.token})
+                  + '\n or '
+                  + url_concat(self._url('127.0.0.1'), {'token': self.token}))
         return url
 
     @property
@@ -435,22 +451,41 @@ class Voila(Application):
                     'notebook_path': os.path.relpath(self.notebook_path, self.root_dir),
                     'nbconvert_template_paths': self.nbconvert_template_paths,
                     'config': self.config,
-                    'voila_configuration': self.voila_configuration
+                    'voila_configuration': self.voila_configuration,
+                    'token': self.token
                 }
             ))
         else:
             self.log.debug('serving directory: %r', self.root_dir)
             handlers.extend([
-                (self.server_url, VoilaTreeHandler),
-                (url_path_join(self.server_url, r'/voila/tree' + path_regex), VoilaTreeHandler),
+                (self.server_url, VoilaTreeHandler,
+                    {
+                      'token': self.token
+                    }),
+                (url_path_join(self.server_url, r'/voila/tree' + path_regex), VoilaTreeHandler,
+                    {
+                      'token': self.token
+                    }),
                 (url_path_join(self.server_url, r'/voila/render' + notebook_path_regex), VoilaHandler,
                     {
                         'nbconvert_template_paths': self.nbconvert_template_paths,
                         'config': self.config,
-                        'voila_configuration': self.voila_configuration
+                        'voila_configuration': self.voila_configuration,
+                        'token': self.token
                     }),
             ])
 
+        locals_var = locals()
+        locals_var.update(self=self)
+        for additional in additional_handlers:
+            # This condition allow overwriting original handler
+            if url_path_join(self.server_url, additional.URL) in [handler[0] for handler in handlers]:
+                index = [handler[0] for handler in handlers].index(url_path_join(self.server_url, additional.URL))
+                handlers[index] = (url_path_join(self.server_url, additional.URL), additional,
+                                   {key: eval(value, globals(), locals_var) for key, value in additional.PARAM.items()})
+            else:
+                handlers.append((url_path_join(self.server_url, additional.URL), additional,
+                                 {key: eval(value, globals(), locals_var) for key, value in additional.PARAM.items()}))
         self.app.add_handlers('.*$', handlers)
         self.listen()
 
@@ -487,10 +522,10 @@ class Voila(Application):
         fd, open_file = tempfile.mkstemp(suffix='.html')
         # Write a temporary file to open in the browser
         with io.open(fd, 'w', encoding='utf-8') as fh:
-            # TODO: do we want to have the token?
-            # if self.token:
-            #     url = url_concat(url, {'token': self.token})
             url = url_path_join(self.connection_url, uri)
+            # TODO: hide token in address ?
+            if self.token:
+                url = url_concat(url, {'token': self.token})
 
             jinja2_env = self.app.settings['jinja2_env']
             template = jinja2_env.get_template('browser-open.html')

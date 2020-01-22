@@ -20,8 +20,12 @@ callbacks to changes in Jupyter interactive widgets.
   input cells from the rendered notebook.
 
 ## Installation
+This version of `voila` has to be installed in local
+```bash
+python -m pip install . -vv
+```
 
-Voila can be installed with the conda package manager
+Original `Voila` can be installed with the conda package manager
 
 ```
 conda install -c conda-forge voila

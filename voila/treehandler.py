@@ -13,6 +13,10 @@ from jupyter_server.utils import url_path_join, url_escape
 
 
 class VoilaTreeHandler(JupyterHandler):
+
+    def initialize(self, **kwargs):
+        self.voila_token = kwargs.pop('token', u'')
+
     def get_template(self, name):
         """Return the jinja template object for a given name"""
         return self.settings['voila_jinja2_env'].get_template(name)
@@ -40,6 +44,13 @@ class VoilaTreeHandler(JupyterHandler):
 
     @web.authenticated
     def get(self, path=''):
+
+        # Manage token
+        if self.voila_token:
+            token = self.get_argument("token", "")
+            if not token == self.voila_token:
+                raise web.HTTPError(404, 'you need a token to connect')
+
         cm = self.contents_manager
 
         if cm.dir_exists(path=path):

@@ -23,10 +23,16 @@ class VoilaHandler(JupyterHandler):
         self.nbconvert_template_paths = kwargs.pop('nbconvert_template_paths', [])
         self.exporter_config = kwargs.pop('config', None)
         self.voila_configuration = kwargs['voila_configuration']
+        self.voila_token = kwargs.pop('token', u'')
 
     @tornado.web.authenticated
     @tornado.gen.coroutine
     def get(self, path=None):
+        # Manage token
+        if self.voila_token:
+            token = self.get_argument("token", "")
+            if not token == self.voila_token:
+                raise tornado.web.HTTPError(404, 'you need a token to connect')
         # if the handler got a notebook_path argument, always serve that
         notebook_path = self.notebook_path or path
 
