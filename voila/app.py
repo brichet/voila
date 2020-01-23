@@ -34,6 +34,7 @@ import jinja2
 
 import tornado.ioloop
 import tornado.web
+from tornado.httputil import url_concat
 
 from traitlets.config.application import Application
 from traitlets.config.loader import Config
@@ -241,6 +242,10 @@ class Voila(Application):
                                  cannot be determined reliably by the Jupyter notebook server (proxified
                                  or containerized setups for example)."""))
 
+    token = Unicode(u'', config=True,
+                    help="""Specify a token for connexion, allowing only owners to access to the Notebook
+                         """)
+
     @property
     def display_url(self):
         if self.custom_display_url:
@@ -254,12 +259,12 @@ class Voila(Application):
                 ip = self.ip
             url = self._url(ip)
         # TODO: do we want to have the token?
-        # if self.token:
-        #     # Don't log full token if it came from config
-        #     token = self.token if self._token_generated else '...'
-        #     url = (url_concat(url, {'token': token})
-        #           + '\n or '
-        #           + url_concat(self._url('127.0.0.1'), {'token': token}))
+        if self.token:
+            # # Don't log full token if it came from config
+            # token = self.token if self._token_generated else '...'
+            url = (url_concat(url, {'token': self.token})
+                   + '\n or '
+                   + url_concat(self._url('127.0.0.1'), {'token': self.token}))
         return url
 
     @property
@@ -477,7 +482,8 @@ class Voila(Application):
         )
 
         tree_handler_conf = {
-            'voila_configuration': self.voila_configuration
+            'voila_configuration': self.voila_configuration,
+            'token': self.token
         }
         if self.notebook_path:
             handlers.append((
@@ -487,7 +493,8 @@ class Voila(Application):
                     'notebook_path': os.path.relpath(self.notebook_path, self.root_dir),
                     'nbconvert_template_paths': self.nbconvert_template_paths,
                     'config': self.config,
-                    'voila_configuration': self.voila_configuration
+                    'voila_configuration': self.voila_configuration,
+                    'token': self.token
                 }
             ))
         else:
@@ -501,7 +508,8 @@ class Voila(Application):
                  {
                      'nbconvert_template_paths': self.nbconvert_template_paths,
                      'config': self.config,
-                     'voila_configuration': self.voila_configuration
+                     'voila_configuration': self.voila_configuration,
+                     'token': self.token
                  }),
             ])
 
@@ -573,10 +581,10 @@ class Voila(Application):
         fd, open_file = tempfile.mkstemp(suffix='.html')
         # Write a temporary file to open in the browser
         with io.open(fd, 'w', encoding='utf-8') as fh:
-            # TODO: do we want to have the token?
-            # if self.token:
-            #     url = url_concat(url, {'token': self.token})
             url = url_path_join(self.connection_url, uri)
+            # TODO: do we want to have the token?
+            if self.token:
+                url = url_concat(url, {'token': self.token})
 
             jinja2_env = self.app.settings['jinja2_env']
             template = jinja2_env.get_template('browser-open.html')
